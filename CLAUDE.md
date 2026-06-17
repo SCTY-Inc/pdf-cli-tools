@@ -1,33 +1,40 @@
 # CLAUDE.md
 
-Python 3.11 / uv
+Two scripts, ~250 LOC. PDF → Markdown via docling + MiniCPM-V 4.6 figure captions.
+No package, no pyproject, no tests-of-glue — `doc` IS the tool.
+
+## Run
 
 ```bash
-uv sync && uv run pytest
+doc book.pdf [--vlm | --describe] [--short] [--resume] [--out DIR]
 ```
 
-## CLI
+- standard = heron layout + OCR + TableFormer (page-by-page, resumable)
+- `--vlm` = Granite-Docling MLX VLM
+- `--describe` = standard OCR + MiniCPM-V 4.6 caption per figure, inline
+- `--short` = terser captions, ~1.9x faster (only with `--describe`)
 
-```bash
-pdftoolkit convert file.pdf [-p docling|marker|mistral|markitdown|megaparse] [-o dir] [--describe]
-pdftoolkit benchmark file.pdf [-t tool ...] [-o dir]
-pdftoolkit analyze image.jpg [-p ollama|together|colqwen] [-q "query"] [--threshold 0.5]
-```
-
-## Structure
+## Files
 
 ```
-pdftoolkit/cli.py          # Typer entry
-pdftoolkit/benchmark.py    # Benchmark harness + registry
-pdftoolkit/providers/      # convert.py, analyze.py
-pdftoolkit/clients.py      # API singletons
-src/                       # Reference scripts
+doc                   # CLI: docling page-by-page + resume + describe flow
+minicpm-describe.py   # PEP-723 mlx-vlm captioner, own uv env
 ```
+
+(Was a multi-provider `pdftoolkit` package; collapsed to these two scripts — history in git.)
 
 ## Notes
 
 - `trash` not rm
-- API keys: OPENAI, MISTRAL, TOGETHER
-- `convert --describe` only works with `-p marker`
-- `benchmark` defaults are env-aware: always `docling`, plus `markitdown` with `OPENAI_API_KEY`, plus `mistral` with `MISTRAL_API_KEY`
-- Outputs: `output/`
+- **Captioner runs in its OWN uv env** — mlx-vlm vs docling transformers conflict. `doc`
+  shells out to `minicpm-describe.py` via `uv run` (PEP-723). Located by
+  `Path(__file__).resolve().with_name(...)` so it works through the `~/.local/bin/doc` symlink.
+- Captioner contract: `minicpm-describe.py <image_dir> [short|normal]` → prints `READY n` /
+  `DONE name`, writes `captions.json`. MiniCPM's chain-of-thought is suppressed + stripped.
+- Model: `mlx-community/MiniCPM-V-4.6-4bit` from `HF_HUB_CACHE` (`~/models`).
+  See `~/models/README.md` for the canonical store + symlink invariant.
+- `doc` runs under docling's uv-tool python (shebang). `uv tool install docling` to provision.
+- `~/.local/bin/doc` is a symlink to this repo — edit here.
+- Apple Silicon required for `--describe` / `--vlm` (MLX). Output: next to source PDF.
+- Editing the standalone scripts: no test suite; the keep-test is `doc --describe` on a
+  sample PDF still inlining captions.

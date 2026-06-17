@@ -1,1 +1,0 @@
-# PDF Tool Evaluation Harness

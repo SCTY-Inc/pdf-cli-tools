@@ -1,39 +1,32 @@
 # Agent Rules
 
-- `trash` not rm; `uv` for Python
-- Session end: gates pass → commit → `git push` (mandatory)
+- `trash` not rm; `git add <files>` never `.`; Conventional Commits; no emojis
+- Session end: keep-test passes → commit → `git push` (ask first)
 
 ---
 
-# Providers
+# The tool
 
-## Convert (`pdftoolkit/providers/convert.py`)
+Two scripts, ~250 LOC. No package.
 
-| Provider | Key | Output |
-|----------|-----|--------|
-| docling (default) | - | `{stem}.md` |
-| marker | OPENAI (--describe) | `{stem}/output.md` |
-| mistral | MISTRAL | `{stem}-mistral.md` |
-| markitdown | OPENAI | `{stem}-markitdown.md` |
-| megaparse | - | `{stem}-megaparse.md` |
+| File | Role |
+| --- | --- |
+| `doc` | docling page-by-page → Markdown; modes: standard, `--vlm`, `--describe`; `--resume`, `--short`, `--out` |
+| `minicpm-describe.py` | MiniCPM-V 4.6 figure captioner, own PEP-723 uv env |
 
-## Analyze (`pdftoolkit/providers/analyze.py`)
+## Captioner contract
 
-| Provider | Requirement |
-|----------|-------------|
-| ollama (default) | local Ollama |
-| together | TOGETHER key |
-| colqwen | local GPU |
+`minicpm-describe.py <image_dir> [short|normal]` → prints `READY n` / `DONE name`
+(drives the progress bar), writes `captions.json`. Model `mlx-community/MiniCPM-V-4.6-4bit`
+from `HF_HUB_CACHE` (`~/models`).
 
-## Benchmark (`pdftoolkit/benchmark.py`)
+## Keep-test (no unit tests by design)
 
-| Mode | Behavior |
-|------|----------|
-| default | Runs commercial-safe runnable tools: `docling`, plus `markitdown` with `OPENAI_API_KEY`, plus `mistral` with `MISTRAL_API_KEY` |
-| explicit | Pass `-t/--tool` repeatedly to benchmark any registered provider |
+`doc --describe <sample>.pdf` still finds figures and inlines captions. Run it before/after
+any change to either script; keep the change only if captions still land.
 
-## Extend
+## Conventions
 
-1. Add fn to `providers/{convert,analyze}.py`
-2. Export in `providers/__init__.py`
-3. Add enum + match in `cli.py`
+- `~/.local/bin/doc` → symlink to this repo; edit here.
+- `doc` runs under docling's uv-tool python (shebang); `uv tool install docling` provisions it.
+- Captioner isolation (mlx-vlm vs docling transformers) is load-bearing — keep the subprocess seam.

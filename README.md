@@ -1,175 +1,55 @@
-# PDFToolkit
+# doc
 
-### PDF Extraction and Analysis CLI
+**PDF → Markdown via docling, with a live progress bar and MiniCPM-V 4.6 figure captions.**
 
-<p>
-<img alt="Python Version" src="https://img.shields.io/badge/python-3.11-blue.svg" />
-<img alt="License" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
-</p>
+Two scripts, ~250 lines. No package, no framework.
 
------
-
-<p align="center">
- <a href="#-overview">Overview</a> •
- <a href="#-installation">Installation</a> •
- <a href="#-usage">Usage</a> •
- <a href="#-providers">Providers</a> •
- <a href="#-references">References</a>
-</p>
-
------
-
-## Overview
-
-PDFToolkit is a CLI for extracting, analyzing, and benchmarking PDF content, with a focus on charts and visualizations. It provides a unified interface to multiple conversion and analysis backends, plus a harness for comparing parsers on a single document.
-
-## Installation
-
-```bash
-git clone https://github.com/amadad/pdftoolkit.git
-cd pdftoolkit
-
-# Install uv (if needed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Create environment and install
-uv venv && source .venv/bin/activate
-uv sync
-```
-
-Set up API keys:
-```bash
-export OPENAI_API_KEY="..."      # For marker --describe, markitdown
-export MISTRAL_API_KEY="..."     # For mistral provider
-export TOGETHER_API_KEY="..."    # For together provider
-```
-
-Optional installs:
-```bash
-uv pip install megaparse unstructured[all-docs]==0.15.0  # megaparse provider
-uv pip install together                                   # together provider
-```
+- **`doc`** — drives [docling](https://github.com/DS4SD/docling) page-by-page so you get
+  a real progress bar (`page 47/232 · ETA 3m`) and crash-resume. Output lands next to the
+  source PDF.
+- **`minicpm-describe.py`** — captions every figure with **MiniCPM-V 4.6** (MLX, Apple
+  Silicon). Runs in its own ephemeral `uv` env because mlx-vlm and docling pin
+  incompatible transformers; `doc --describe` invokes it as a subprocess.
 
 ## Usage
 
-### Convert PDF to Markdown
+```bash
+doc book.pdf                 # standard pipeline: layout + OCR (Apple Vision if scanned) + tables
+doc --vlm book.pdf           # Granite-Docling MLX VLM — one model does layout+OCR+tables
+doc --vlm --resume book.pdf  # continue an interrupted run
+doc --describe book.pdf      # standard OCR + a MiniCPM-V 4.6 caption of each figure, inline
+doc --describe --short book.pdf   # terser captions (~1.9x faster)
+doc --out DIR book.pdf       # output directory (default: next to the source PDF)
+```
+
+## Setup
 
 ```bash
-# Default provider (docling)
-pdftoolkit convert document.pdf
+# docling, with the python that doc's shebang points at:
+uv tool install docling
 
-# Choose provider
-pdftoolkit convert document.pdf -p marker
-pdftoolkit convert document.pdf -p mistral
-pdftoolkit convert document.pdf -p markitdown
-pdftoolkit convert document.pdf -p megaparse
-
-# With options
-pdftoolkit convert document.pdf -p marker --describe  # Add AI image descriptions (marker only)
-pdftoolkit convert document.pdf -o custom_output/     # Custom output directory
+# symlink the command (this repo is the source of truth):
+ln -s "$PWD/doc" ~/.local/bin/doc
 ```
 
-### Benchmark a PDF Across Parsers
+`doc --describe` and `--vlm` need Apple Silicon (MLX). MiniCPM-V 4.6 weights download on
+first use into `HF_HUB_CACHE` (defaults to `~/models`). The captioner env is resolved
+automatically by `uv run` from the PEP-723 header in `minicpm-describe.py` — nothing to install.
 
-```bash
-# Benchmark the default runnable commercial-safe tools
-pdftoolkit benchmark document.pdf
+## Why MiniCPM-V 4.6
 
-# Benchmark an explicit commercial-friendly subset
-pdftoolkit benchmark document.pdf -t docling -t markitdown -t mistral
+Replaced moondream2 after a head-to-head on real decks: both transcribe chart numbers, but
+MiniCPM stays grounded where moondream confabulates a business narrative and misreads a
+matrix as a "bar chart". MiniCPM is built for text-bearing images and runs on MLX (no
+Ollama, no API).
 
-# Benchmark optional research tools (if installed)
-pdftoolkit benchmark document.pdf -t mineru -t olmocr -t paddleocr
-```
-
-By default, `benchmark` runs the low-friction commercial tool set that is currently runnable in your environment. Outputs are written under `output/benchmark/<document-stem>/`, with a `results.json` summary and per-tool output directories.
-
-### Analyze Images/Charts
-
-```bash
-# Default provider (ollama - local)
-pdftoolkit analyze chart.jpg
-
-# Choose provider
-pdftoolkit analyze chart.jpg -p ollama
-pdftoolkit analyze chart.jpg -p together
-pdftoolkit analyze chart.jpg -p colqwen
-
-# With options
-pdftoolkit analyze chart.jpg -q "What trends does this show?"
-pdftoolkit analyze images/ --threshold 0.6  # Batch with confidence filter
-
-# ColQwen returns relevance scores for queries
-pdftoolkit analyze chart.jpg -p colqwen -q "chart showing growth"
-```
-
-### Help
-
-```bash
-pdftoolkit --help
-pdftoolkit convert --help
-pdftoolkit benchmark --help
-pdftoolkit analyze --help
-```
-
-## Providers
-
-### Convert Providers
-
-| Provider | Description | Requirements |
-|----------|-------------|--------------|
-| `docling` | IBM's document toolkit, basic extraction | Default |
-| `marker` | PDF extraction with image support | `--describe` needs OPENAI_API_KEY |
-| `mistral` | Mistral OCR API | MISTRAL_API_KEY |
-| `markitdown` | Microsoft's converter | OPENAI_API_KEY |
-| `megaparse` | Advanced structure parsing | Separate install |
-
-### Benchmark Tools
-
-`pdftoolkit benchmark` can run the integrated convert providers plus optional eval tools when installed.
-
-| Tool | What it is | Commercial use |
-|------|-------------|----------------|
-| `docling` | IBM document parser | Yes |
-| `markitdown` | Microsoft converter | Yes |
-| `mistral` | Mistral OCR API | Yes |
-| `megaparse` | Structural parser | Yes |
-| `marker` | Layout-focused parser | Review license/weights |
-| `paddleocr` | PP-Structure parser | Yes |
-| `olmocr` | Technical-doc OCR | Yes |
-| `mineru` | Strong open parser | No (AGPL) |
-| `got-ocr`, `qwen-vl`, `internvl`, `nanonets` | VLM eval tools | Review model licenses |
-
-### Analyze Providers
-
-| Provider | Description | Requirements |
-|----------|-------------|--------------|
-| `ollama` | Local Llama Vision | Ollama running locally |
-| `together` | Together API with confidence scoring | TOGETHER_API_KEY |
-| `colqwen` | Visual similarity/relevance scores | Local GPU recommended |
-
-## Project Structure
+## Layout
 
 ```
-pdftoolkit/
-├── cli.py              # Typer CLI
-├── providers/
-│   ├── convert.py      # PDF conversion providers
-│   └── analyze.py      # Image analysis providers
-├── benchmark.py        # Benchmark harness and tool registry
-├── clients.py          # API client singletons
-└── utils.py            # Shared utilities
-src/                    # Standalone scripts (reference implementations)
-tests/                  # Test suite
+doc                   # the CLI (docling page-by-page + resume + describe flow)
+minicpm-describe.py   # PEP-723 mlx-vlm figure captioner (isolated env)
 ```
 
-## References
-
-- [ColQwen2](https://huggingface.co/vidore/colqwen2-v0.1) - Visual retrieval model
-- [Docling](https://github.com/DS4SD/docling) - IBM's document toolkit
-- [Marker](https://github.com/VikParuchuri/marker) - PDF extraction
-- [MegaParse](https://github.com/QuivrHQ/MegaParse) - Advanced parsing
-- [MarkItDown](https://github.com/microsoft/markitdown) - Microsoft's converter
-- [Mistral OCR](https://docs.mistral.ai/api/endpoint/ocr) - Mistral Document AI
-- [Ollama](https://ollama.ai/) - Local LLM inference
-- [Together](https://together.ai/) - Cloud LLM inference
+This repo was once a multi-provider `pdftoolkit` package with a benchmark harness; it
+collapsed to the two scripts that are the actual tool. That history is in git
+(`git log --follow`).
