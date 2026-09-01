@@ -4,12 +4,10 @@
 
 Two scripts, ~250 lines. No package, no framework.
 
-- **`doc`** — drives [docling](https://github.com/DS4SD/docling) page-by-page so you get
-  a real progress bar (`page 47/232 · ETA 3m`) and crash-resume. Output lands next to the
-  source PDF.
-- **`minicpm-describe.py`** — captions every figure with **MiniCPM-V 4.6** (MLX, Apple
-  Silicon). Runs in its own ephemeral `uv` env because mlx-vlm and docling pin
-  incompatible transformers; `doc --describe` invokes it as a subprocess.
+| Script | Role |
+| --- | --- |
+| `doc` | the CLI — drives [docling](https://github.com/DS4SD/docling) page-by-page for a real progress bar (`page 47/232 · ETA 3m`) and crash-resume; writes Markdown next to the source PDF |
+| `minicpm-describe.py` | captions every figure with **MiniCPM-V 4.6** (MLX) and hands the text back to `doc` to inline |
 
 ## Usage
 
@@ -22,34 +20,61 @@ doc --describe --short book.pdf   # terser captions (~1.9x faster)
 doc --out DIR book.pdf       # output directory (default: next to the source PDF)
 ```
 
+## How it fits together
+
+The two scripts run in **two separate Python environments** — on purpose. mlx-vlm (for
+MiniCPM) and docling pin incompatible `transformers` versions, so they can never share a
+process. `doc` keeps the captioner at arm's length and shells out to it:
+
+```
+  doc                          ← runs in docling's uv-tool env
+   │                             (docling + pypdfium2 + rich)
+   │  --describe: extract figure crops → temp dir
+   ▼
+  uv run minicpm-describe.py   ← its OWN ephemeral env (mlx-vlm),
+   │                             built on first run from the script's
+   │                             PEP-723 header — nothing to pre-install
+   │  loads MiniCPM-V-4.6-4bit ──┐
+   ▼                            │  weights live in
+  captions.json                 └─ HF_HUB_CACHE  (default: ~/models)
+   │
+   ▼
+  inlined into book.md
+```
+
+So there are three things on disk:
+- **docling's env** — `~/.local/share/uv/tools/docling/` (the python `doc`'s shebang points at)
+- **the captioner's env** — ephemeral, managed by `uv run`; you never see or install it
+- **the model weights** — `~/models` (`HF_HUB_CACHE`): MiniCPM-V 4.6 + docling's own models
+
 ## Setup
 
+You install **one** thing — docling — and symlink the command:
+
 ```bash
-# docling, with the python that doc's shebang points at:
+# 1. docling — provides the python in doc's shebang (#!.../uv/tools/docling/bin/python)
 uv tool install docling
 
-# symlink the command (this repo is the source of truth):
+# 2. put `doc` on your PATH (this repo is the source of truth)
 ln -s "$PWD/doc" ~/.local/bin/doc
 ```
 
-`doc --describe` and `--vlm` need Apple Silicon (MLX). MiniCPM-V 4.6 weights download on
-first use into `HF_HUB_CACHE` (defaults to `~/models`). The captioner env is resolved
-automatically by `uv run` from the PEP-723 header in `minicpm-describe.py` — nothing to install.
+That's the whole install. The **first** `doc --describe` bootstraps the captioner itself:
+`uv run` reads the PEP-723 header in `minicpm-describe.py`, builds a throwaway env with
+mlx-vlm, and downloads `mlx-community/MiniCPM-V-4.6-4bit` (~2 GB) into `HF_HUB_CACHE`.
+Subsequent runs reuse both.
+
+Requires Apple Silicon (MLX) for `--describe` and `--vlm`. If your uv-tools path differs,
+edit the shebang on line 1 of `doc`.
 
 ## Why MiniCPM-V 4.6
 
 Replaced moondream2 after a head-to-head on real decks: both transcribe chart numbers, but
 MiniCPM stays grounded where moondream confabulates a business narrative and misreads a
-matrix as a "bar chart". MiniCPM is built for text-bearing images and runs on MLX (no
-Ollama, no API).
+matrix as a "bar chart". MiniCPM is built for text-bearing images and runs on MLX — no
+Ollama, no API.
 
-## Layout
-
-```
-doc                   # the CLI (docling page-by-page + resume + describe flow)
-minicpm-describe.py   # PEP-723 mlx-vlm figure captioner (isolated env)
-```
+---
 
 This repo was once a multi-provider `pdftoolkit` package with a benchmark harness; it
-collapsed to the two scripts that are the actual tool. That history is in git
-(`git log --follow`).
+collapsed to the two scripts that are the actual tool. History is in git (`git log --follow`).
